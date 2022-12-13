@@ -12,15 +12,11 @@ name = "aleo-prover"
 path = "src/main.rs"
 
 [dependencies]
-#snarkvm = { path = "../../src/snarkVM" }
-#snarkvm-algorithms = { path = "../../src/snarkVM/algorithms" }
-#snarkos = { path = "../../src/snarkOS" }
-#snarkvm = { git = "https://github.com/AleoHQ/snarkVM.git", branch = "testnet3" }
-#snarkvm-algorithms = { git = "https://github.com/AleoHQ/snarkVM.git", branch = "testnet3" }
-snarkvm = "0.9.10"
-snarkvm-algorithms = "0.9.10"
-snarkos-account = { git = "https://github.com/AleoHQ/snarkOS.git", branch = "testnet3" }
-snarkos-node-messages = { git = "https://github.com/AleoHQ/snarkOS.git", branch = "testnet3" }
+snarkvm = { path = "../snarkVM" }
+snarkvm-algorithms = { path = "../snarkVM/algorithms" }
+#snarkos = { path = "../snarkOS" }
+snarkos-account = { path = "../snarkOS/account" }
+snarkos-node-messages = { path = "../snarkOS/node/messages" }
 rand = "0.8.5"
 num_cpus = "1.13.1"
 rayon = "1.5.1"
@@ -66,7 +62,7 @@ version = "1.0.82"
 features = ["preserve_order"]
 
 [features]
-#cuda = ["snarkvm/cuda"]
+cuda = ["snarkvm-algorithms/cuda"]
 
 [profile.dev]
 opt-level = 1
