@@ -24,7 +24,7 @@ git clone https://github.com/reed4u/snarkVM.git
 git clone https://github.com/reed4u/aleo-prover-direct-cuda.git
 cd aleo-prover-direct-cuda
 cargo build --release --features cuda
-cargo run --release --features cuda -- -g 0 -g1 -p APrivateKey1
+cargo run --release --features cuda -- -g 0 -g 1 -p APrivateKey1
 ```
 
 ## License
