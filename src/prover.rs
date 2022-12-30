@@ -71,7 +71,7 @@ impl Prover {
         }
         for index in 0..pool_count {
             let builder = ThreadPoolBuilder::new()
-                .stack_size(16 * 1024 * 1024)
+                .stack_size(8 * 1024 * 1024)
                 .num_threads(pool_threads as usize);
             let pool = if cuda.is_none() {
                 builder.thread_name(move |idx| format!("ap-cpu-{}-{}", index, idx))
