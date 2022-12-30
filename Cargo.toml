@@ -14,8 +14,10 @@ path = "src/main.rs"
 [dependencies]
 snarkvm = { path = "../snarkVM" }
 snarkvm-algorithms = { path = "../snarkVM/algorithms" }
-snarkos-account = { path = "../snarkOS/account"}
-snarkos-node-messages = { path = "../snarkOS/node/messages"}
+# snarkos-account = { path = "../snarkOS/account"}
+# snarkos-node-messages = { path = "../snarkOS/node/messages"}
+snarkos-account = { git = "https://github.com/aleohq/snarkOS.git", branch = "feat/initial-gpu-prover" }
+snarkos-node-messages = { git = "https://github.com/aleohq/snarkOS.git", branch = "feat/initial-gpu-prover" }
 rand = "0.8.5"
 num_cpus = "1.14.0"
 rayon = "1.6.0"
