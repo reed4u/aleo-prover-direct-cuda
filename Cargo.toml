@@ -56,6 +56,9 @@ version = "1.0.89"
 features = ["preserve_order"]
 
 [features]
+default = [
+    "cuda"
+]
 cuda = ["snarkvm/cuda"]
 
 [profile.dev]
