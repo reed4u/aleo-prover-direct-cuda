@@ -27,9 +27,10 @@ struct Opt {
     debug: bool,
 
     #[clap(verbatim_doc_comment)]
-    /// Prover address (aleo1...)
-    #[clap(short = 'a', long = "address")]
-    address: Option<Address<Testnet3>>,
+    /// Prover private key (APrivateKey1zkp...)
+    /// You should provide the private key from .env file instead: PRIVATE_KEY=APrivateKey1zkp...
+    #[clap(short = 'p', long = "private-key")]
+    private_key: Option<PrivateKey<Testnet3>>,
 
     /// Beacon node address
     #[clap(short = 'b', long = "beacon")]
@@ -73,7 +74,7 @@ struct Opt {
 async fn main() {
     #[cfg(windows)]
     let _ = ansi_term::enable_ansi_support();
-    
+    dotenvy::dotenv().ok();
     let opt = Opt::parse();
     if opt.new_address {
         let private_key = PrivateKey::<Testnet3>::new(&mut rand::thread_rng()).unwrap();
@@ -113,29 +114,38 @@ async fn main() {
 
     let beacons = if opt.beacon.is_none() {
         [
-            //"164.92.111.59:4133",
-            //"159.223.204.96:4133",
-            //"167.71.219.176:4133",
-            //"157.245.205.209:4133",
-            //"134.122.95.106:4133",
-            //"161.35.24.55:4133",
+            "164.92.111.59:4133",
+            "159.223.204.96:4133",
+            "167.71.219.176:4133",
+            "157.245.205.209:4133",
+            "134.122.95.106:4133",
+            "161.35.24.55:4133",
             "138.68.103.139:4133",
-            //"207.154.215.49:4133",
-            //"46.101.114.158:4133",
-            //"138.197.190.94:4133",
+            "207.154.215.49:4133",
+            "46.101.114.158:4133",
+            "138.197.190.94:4133",
         ]
         .map(|s| s.to_string())
         .to_vec()
     } else {
         vec![opt.beacon.unwrap()]
     };
-    
-    if opt.address.is_none() {
-        error!("Prover address is required!");
-        std::process::exit(1);
-    }
-    let address = opt.address.unwrap();
-
+    let private_key = match opt.private_key {
+        Some(private_key) => private_key,
+        None => match dotenvy::var("PRIVATE_KEY") {
+            Ok(private_key) => match PrivateKey::from_str(&private_key) {
+                Ok(private_key) => private_key,
+                Err(e) => {
+                    error!("Invalid private key: {}", e);
+                    return;
+                }
+            },
+            Err(_) => {
+                error!("Private key is required");
+                std::process::exit(1);
+            }
+        },
+    };
     beacons
         .iter()
         .map(|s| {
@@ -175,7 +185,7 @@ async fn main() {
     //     debug!("Node initialized");
     // }
 
-    let client = DirectClient::init(address, beacons);
+    let client = DirectClient::init(private_key.try_into().unwrap(), beacons);
 
     let prover: Arc<Prover> = match Prover::init(threads, thread_pool_size, client.clone(), cuda, cuda_jobs).await {
         Ok(prover) => prover,

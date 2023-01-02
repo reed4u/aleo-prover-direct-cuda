@@ -2087,13 +2087,23 @@ dependencies = [
  "serde",
  "sha2",
  "smallvec",
- "snarkvm-cuda",
+ "snarkvm-algorithms-cuda",
  "snarkvm-curves",
  "snarkvm-fields",
  "snarkvm-parameters",
  "snarkvm-r1cs",
  "snarkvm-utilities",
  "thiserror",
+]
+
+[[package]]
+name = "snarkvm-algorithms-cuda"
+version = "0.9.11"
+dependencies = [
+ "blst",
+ "cc",
+ "sppark",
+ "which",
 ]
 
 [[package]]
@@ -2437,16 +2447,6 @@ dependencies = [
  "snarkvm-console-types-boolean",
  "snarkvm-console-types-field",
  "snarkvm-console-types-integers",
-]
-
-[[package]]
-name = "snarkvm-cuda"
-version = "0.9.11"
-dependencies = [
- "blst",
- "cc",
- "sppark",
- "which",
 ]
 
 [[package]]
