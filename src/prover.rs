@@ -1,3 +1,13 @@
+use ansi_term::Colour::{Cyan, Green, Red};
+use anyhow::Result;
+use rand::{thread_rng, Rng, RngCore};
+use rayon::{ThreadPool, ThreadPoolBuilder};
+use snarkos_node_messages::{Data, UnconfirmedSolution};
+use snarkvm::{
+    console::account::address::Address,
+    prelude::{CoinbasePuzzle, Testnet3, ToBytes},
+    synthesizer::{EpochChallenge, PuzzleConfig, UniversalSRS},
+};
 use std::{
     collections::VecDeque,
     sync::{
@@ -6,20 +16,13 @@ use std::{
     },
     time::Duration,
 };
-
-use ansi_term::Colour::{Cyan, Green, Red};
-use anyhow::Result;
-use rand::{thread_rng, RngCore};
-use rayon::{ThreadPool, ThreadPoolBuilder};
-use snarkos_node_messages::{Data, UnconfirmedSolution};
-use snarkvm::{
-    console::account::address::Address,
-    prelude::{CoinbasePuzzle, Testnet3, ToBytes},
-    synthesizer::{EpochChallenge, PuzzleConfig, UniversalSRS},
+//use snarkvm_algorithms::crypto_hash::sha256d_to_u64;
+use tokio::{
+    runtime::Runtime,
+    sync::{mpsc, oneshot},
+    task,
 };
-use snarkvm_algorithms::crypto_hash::sha256d_to_u64;
-use tokio::{sync::mpsc, task};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::client_direct::DirectClient;
 
@@ -67,7 +70,7 @@ impl Prover {
             }
         } else {
             pool_threads = thread_pool_size as u16;
-            pool_count = (cuda_jobs.unwrap_or(1) * cuda.clone().unwrap().len() as u8) as u16;
+            pool_count = (cuda_jobs.unwrap_or(12) * cuda.clone().unwrap().len() as u8) as u16;
         }
         for index in 0..pool_count {
             let builder = ThreadPoolBuilder::new()
@@ -112,18 +115,22 @@ impl Prover {
             coinbase_puzzle,
         });
 
-        let p = prover.clone();
-        let _ = task::spawn(async move {
-            while let Some(msg) = receiver.recv().await {
-                match msg {
-                    ProverEvent::NewTarget(target) => {
-                        p.new_target(target);
-                    }
-                    ProverEvent::NewWork(epoch_number, epoch_challenge, address) => {
-                        p.new_work(epoch_number, epoch_challenge, address).await;
-                    }
-                    ProverEvent::_Result(success, error) => {
-                        p.result(success, error).await;
+        let prover_handler = prover.clone();
+
+        task::spawn(async move {
+            loop {
+                //info!("tokio::select before start_prover_process");
+                tokio::select! {
+                    Some(request) = receiver.recv() => match request {
+                        ProverEvent::NewTarget(target) => {
+                            prover_handler.new_target(target);
+                        }
+                        ProverEvent::NewWork(epoch_number, epoch_challenge, address) => {
+                            prover_handler.new_work(epoch_number, epoch_challenge, address).await;
+                        }
+                        ProverEvent::_Result(success, error) => {
+                            prover_handler.result(success, error).await;
+                        }
                     }
                 }
             }
@@ -244,6 +251,7 @@ impl Prover {
         self.current_epoch.store(epoch_number, Ordering::SeqCst);
         info!("Received new work: epoch {}", epoch_number);
         let current_proof_target = self.current_proof_target.clone();
+        let target = current_proof_target.load(Ordering::SeqCst);
 
         let current_epoch = self.current_epoch.clone();
         let client = self.client.clone();
@@ -253,27 +261,30 @@ impl Prover {
         let coinbase_puzzle = self.coinbase_puzzle.clone();
 
         task::spawn(async move {
-            let _ = task::spawn(async move {
-                let mut joins = Vec::new();
-                if let Some(_) = cuda {
-                    warn!("This version of the prover is only using the first GPU");
-                }
-                for (_, tp) in thread_pools.iter().enumerate() {
-                    let current_proof_target = current_proof_target.clone();
-                    let current_epoch = current_epoch.clone();
-                    let client = client.clone();
-                    let epoch_challenge = epoch_challenge.clone();
-                    let address = address.clone();
-                    let total_proofs = total_proofs.clone();
-                    let tp = tp.clone();
-                    let coinbase_puzzle = coinbase_puzzle.clone();
-                    joins.push(task::spawn(async move {
+            if let Some(_) = cuda {
+                warn!("This version of the prover is only using the first GPU");
+            }
+
+            for (i, thread_pool) in thread_pools.iter().enumerate() {
+                let target = target.clone();
+                let current_epoch = current_epoch.clone();
+                let client = client.clone();
+                let epoch_challenge = epoch_challenge.clone();
+                let address = address.clone();
+                let total_proofs = total_proofs.clone();
+                let thread_pool = thread_pool.clone();
+                let coinbase_puzzle = coinbase_puzzle.clone();
+
+                debug!("prover thread pool id {}", i);
+                let (router, handler) = oneshot::channel();
+
+                std::thread::spawn(move || {
+                    let _ = router.send(());
+                    thread_pool.install(move || {
                         loop {
-                            let current_proof_target = current_proof_target.clone();
-                            let epoch_challenge = epoch_challenge.clone();
-                            let address = address.clone();
-                            let tp = tp.clone();
-                            let coinbase_puzzle = coinbase_puzzle.clone();
+                            trace!("Do coinbase puzzle,  (Epoch {}, Target {})",
+                                            epoch_challenge.epoch_number(), target,);
+
                             if epoch_number != current_epoch.load(Ordering::SeqCst) {
                                 debug!(
                                     "Terminating stale work: current {} latest {}",
@@ -282,53 +293,57 @@ impl Prover {
                                 );
                                 break;
                             }
-                            let nonce = thread_rng().next_u64();
-                            if let Ok(Ok(solution)) = task::spawn_blocking(move || {
-                                tp.install(|| {
-                                    coinbase_puzzle.prove(
-                                        &epoch_challenge,
-                                        address,
-                                        nonce,
-                                        Option::from(current_proof_target.load(Ordering::SeqCst)),
-                                    )
-                                })
-                            })
-                            .await
-                            {
-                                if epoch_number != current_epoch.load(Ordering::SeqCst) {
-                                    debug!(
-                                        "Terminating stale work: current {} latest {}",
-                                        epoch_number,
-                                        current_epoch.load(Ordering::SeqCst)
-                                    );
-                                    break;
-                                }
-                                // Ensure the share difficulty target is met.
-                                let proof_difficulty =
-                                    u64::MAX / sha256d_to_u64(&*solution.commitment().to_bytes_le().unwrap());
 
-                                info!(
-                                    "Solution found for epoch {} with difficulty {}",
-                                    epoch_number, proof_difficulty
-                                );
-
-                                // Send a `PoolResponse` to the operator.
-                                let message = Message::UnconfirmedSolution(UnconfirmedSolution {
-                                    puzzle_commitment: solution.commitment(),
-                                    solution: Data::Object(solution),
-                                });
-                                if let Err(error) = client.sender().send(message).await {
-                                    error!("Failed to send PoolResponse: {}", error);
+                            // Construct a prover solution.
+                            let prover_solution = match coinbase_puzzle.prove(
+                                &epoch_challenge,
+                                address,
+                                rand::thread_rng().gen(),
+                                Some(target),
+                            ) {
+                                Ok(proof) => proof,
+                                Err(error) => {
+                                    trace!("Failed to generate prover solution: {error}");
+                                    total_proofs.fetch_add(1, Ordering::SeqCst);
+                                    continue;
                                 }
-                                total_proofs.fetch_add(1, Ordering::SeqCst);
-                            } else {
-                                total_proofs.fetch_add(1, Ordering::SeqCst);
+                            };
+
+                            // Fetch the prover solution target.
+                            let prover_solution_target = match prover_solution.to_target() {
+                                Ok(target) => target,
+                                Err(error) => {
+                                    warn!("Failed to fetch prover solution target: {error}");
+                                    total_proofs.fetch_add(1, Ordering::SeqCst);
+                                    continue;
+                                }
+                            };
+
+                            // Ensure that the prover solution target is sufficient.
+                            match prover_solution_target >= target {
+                                true => {
+                                    info!("Found a Solution (Proof Target {}, Target {})",prover_solution_target, target);
+                                    // Send a `PoolResponse` to the operator.
+                                    let message = Message::UnconfirmedSolution(UnconfirmedSolution {
+                                        puzzle_commitment: prover_solution.commitment(),
+                                        solution: Data::Object(prover_solution),
+                                    });
+                                    if let Err(error) = futures::executor::block_on(client.sender().send(message)) {
+                                        error!("Failed to send PoolResponse: {}", error);
+                                    }
+                                }
+                                false => trace!(
+                                    "Prover solution was below the necessary proof target ({prover_solution_target} < {target})"
+                                ),
                             }
+
+                            // fetch_add every solution
+                            total_proofs.fetch_add(1, Ordering::SeqCst);
                         }
-                    }));
-                }
-                futures::future::join_all(joins).await;
-            });
+                    });
+                });
+                let _ = handler.await;
+            }
         });
     }
 }

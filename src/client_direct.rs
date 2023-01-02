@@ -10,15 +10,7 @@ use futures_util::sink::SinkExt;
 use rand::{prelude::SliceRandom, rngs::OsRng, Rng};
 use snarkos_account::Account;
 use snarkos_node_messages::{
-    ChallengeRequest,
-    ChallengeResponse,
-    Data,
-    MessageCodec,
-    NodeType,
-    Ping,
-    Pong,
-    PuzzleRequest,
-    PuzzleResponse,
+    ChallengeRequest, ChallengeResponse, Data, MessageCodec, NodeType, Ping, Pong, PuzzleRequest, PuzzleResponse,
 };
 use snarkvm::prelude::{Block, FromBytes, Network, Testnet3};
 use tokio::{
@@ -82,32 +74,6 @@ pub fn start(prover_sender: Arc<Sender<ProverEvent>>, client: Arc<DirectClient>)
                 if connected_req.load(Ordering::SeqCst) {
                     if let Err(e) = client_sender.send(Message::PuzzleRequest(PuzzleRequest {})).await {
                         error!("Failed to send puzzle request: {}", e);
-                    }
-                }
-            }
-        });
-
-        // incoming socket
-        task::spawn(async move {
-            let (_, listener) = match TcpListener::bind("0.0.0.0:4140").await {
-                Ok(listener) => {
-                    let local_ip = listener.local_addr().expect("Could not get local ip");
-                    info!("Listening on {}", local_ip);
-                    (local_ip, listener)
-                }
-                Err(e) => {
-                    panic!("Unable to listen on port 4140: {:?}", e);
-                }
-            };
-            loop {
-                match listener.accept().await {
-                    Ok((stream, peer_addr)) => {
-                        info!("New connection from: {}", peer_addr);
-                        // snarkOS is not checking anything so we just hang up
-                        drop(stream);
-                    }
-                    Err(e) => {
-                        error!("Error accepting connection: {:?}", e);
                     }
                 }
             }
